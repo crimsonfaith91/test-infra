@@ -162,6 +162,22 @@ func selectMultipleOwners(potentialOwners weightMap, weightSum int64, count int)
 	return owners
 }
 
+func getPotentialOwnersHelper(author *string, feats *features.Features, files []*githubapi.CommitFile, issueNumber *int) (weightMap, int64) {
+	potentialOwners, weightSum := getPotentialOwners(*author, feats, files, true)
+	if len(potentialOwners) != 0 {
+		return potentialOwners, weightSum
+	}
+
+	potentialOwners, weightSum = getPotentialOwners(*author, feats, files, false)
+
+	if len(potentialOwners) != 0 {
+		return potentialOwners, weightSum
+	}
+
+	glog.Errorf("No OWNERS found for PR %d", *issueNumber)
+	return nil, 0
+}
+
 // Munge is the workhorse the will actually make updates to the PR
 func (b *BlunderbussMunger) Munge(obj *github.MungeObject) {
 	if !obj.IsPR() {
@@ -179,14 +195,13 @@ func (b *BlunderbussMunger) Munge(obj *github.MungeObject) {
 		return
 	}
 
-	potentialOwners, weightSum := getPotentialOwners(*obj.Issue.User.Login, b.features, files, true)
-	if len(potentialOwners) == 0 {
-		potentialOwners, weightSum = getPotentialOwners(*obj.Issue.User.Login, b.features, files, false)
-		if len(potentialOwners) == 0 {
-			glog.Errorf("No OWNERS found for PR %d", *issue.Number)
-			return
-		}
+	if issue.User == nil || issue.User.Login == nil {
+		glog.Errorf("skipping %v as it does not have author info", *issue.Number)
+		return
 	}
+
+	potentialOwners, weightSum := getPotentialOwnersHelper(obj.Issue.User.Login, b.features, files, issue.Number)
+
 	printChance(potentialOwners, weightSum)
 	if issue.Assignee != nil {
 		cur := *issue.Assignee.Login
